@@ -1,0 +1,40 @@
+#you can view the code in one line, to cut and paste into the terminal, https://github.com/cybertrapped/powershell-download-podcasts/blob/main/codeOneLiner
+#how far back do you want episodes to be downloaded since
+$dateLimit = [int]20240728; 
+
+#csv formated file that contains the podcast names and their correponding feeds. View example csv file in this repository: https://github.com/cybertrapped/powershell-download-podcasts/blob/main/rss.csv
+$podcasts = Import-Csv -Path .\rss.csv;
+
+[int]$counter=0;
+foreach($podcast in $podcasts){
+  if($podcast.download -eq "yes"){
+    $xmlFile=[string]".\"+$counter+".xml";
+    $jsonFile=[string]".\"+$counter+".json";
+    Invoke-WebRequest -Uri $podcast.rssFeed -OutFile $xmlFile;
+    $xmlDocument=[xml](Get-Content $xmlFile);
+    $episodes = @(); 
+    foreach($item in $xmlDocument.rss.channel.item){ 
+      $datePublished= [int]([dateTime]::parseexact(($item.pubDate).Split(',')[1].Split(' ')[1]+" "+($item.pubDate).Split(',')[1].Split(' ')[2]+" "+($item.pubDate).Split(',')[1].Split(' ')[3],"d MMM yyyy", $null).ToString("yyyyMMdd")); 
+      if( $podcast.dateStart -ne 1 ){ $dateStart = [datetime]::parseexact($podcast.dateStart, 'yyyy-MM-dd', $null).toString("yyyyMMdd"); $start = $dateStart } else { $start = $dateLimit; };
+      if( $podcast.dateStop -ne 1 ){ $dateStop = [datetime]::parseexact($podcast.dateStop, 'yyyy-MM-dd', $null).toString("yyyyMMdd"); $end = $dateStop; } else { $end = Get-Date -Format "yyyyMMdd"; };
+      if($datePublished -gt $start -AND $datePublished -le $end -AND -not [String]::IsNullOrEmpty($item.enclosure.url)){ 
+         $episodeInfo=[PSCustomObject]@{ 
+           title=($item.title[0] -creplace '\P{IsBasicLatin}').Replace('"',"").Replace(":","").Replace("'","").Replace("&","AND").Replace("?","").Replace("(","").Replace(")","").Replace("[","").Replace("]","").Replace(" | ","-").Replace("*","X").Replace("/",""); 
+           datePublished=$datePublished;
+           downloadUrl=$item.enclosure.url;
+         };
+        [int]$length=$episodeInfo.title.Length;
+        if($length -gt 100){$length=100;};
+        $title=$episodeInfo.title.Substring(0,$length);
+        $filename = ".\"+$podcast.podcast+"_"+$episodeInfo.datePublished+"_"+$title+".mp3";
+        Invoke-WebRequest -Uri $episodeInfo.downloadUrl -OutFile $filename;
+        $episodes += $episodeInfo;
+      }; 
+   }; 
+   $episodes | ConvertTo-Json | Set-Content -Path $jsonFile; 
+   $podcasts[$counter] | Add-Member -MemberType NoteProperty -Name 'episodes' -value $episodes;
+  };
+  $counter++;
+}; 
+$podcasts | ConvertTo-Json | Set-Content -Path .\podcasts.json;
+
